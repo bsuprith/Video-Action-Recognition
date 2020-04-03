@@ -11,25 +11,25 @@ def path_leaf(path):
     head, tail = ntpath.split(path)
     return tail or ntpath.basename(head)
 
-videoPath = "test_videos\\y_DxQaexwtw.mp4"
+videoPath = "test_videos\\4aLiiegBANw.mp4"
 fileName = os.path.splitext(path_leaf(videoPath))[0]
  
 # load model
-model = load_model('chkp\\weights.20-0.75.hdf5')
+model = load_model('chkp\\model2.hdf5')
 # summarize model.
 model.summary()
 
-testFrames = skvideo.io.vread(videoPath, height = 112, width = 112)
+testFrames = skvideo.io.vread(videoPath, height = 80, width = 80)
 
 i = 0
 fileJson = {}
 fileJson[fileName] = []
-while(i<testFrames.shape[0]):
-  test = testFrames[i:i+10,:,:,:]
+while (i<testFrames.shape[0]):
+  test = testFrames[i:i+30,:,:,:]
   test = np.expand_dims(test, axis = 0)
   predict = model.predict(test)
-  fileJson[fileName].append([str(i),str([predict[0][0],predict[0][1]]) ] )
-  i += 10
+  fileJson[fileName].append([str(i),str([predict[0][0],predict[0][1]])])
+  i += 30
 
 with open("Test\\" + fileName + ".json", "w") as outfile: 
     json.dump(fileJson, outfile)
