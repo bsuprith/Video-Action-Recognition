@@ -13,7 +13,7 @@ from keras import regularizers
 SIZE = (80, 80)
 CHANNELS = 3
 NUM_FRAMES = 30
-BATCH_SIZE = 5
+BATCH_SIZE = 8
 
 # class names
 classes = [i.split(os.path.sep)[1] for i in glob.glob('videos\\*')]
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     sess = tf.compat.v1.Session(config=config)
     
     initialiser = 'glorot_uniform'
-    reg_lambda  = 0.001
+    reg_lambda  = 1e-4
 
     model = keras.Sequential()
 
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     model.add(LSTM(256, return_sequences=False, dropout=0.5))
     model.add(Dense(nb_classes, activation='softmax'))
 
-    optimizer = keras.optimizers.SGD(0.01)
+    optimizer = keras.optimizers.Adam(learning_rate=0.001, beta_1=0.9, beta_2=0.999, amsgrad=False)
     model.compile(
         optimizer,
         'categorical_crossentropy',
