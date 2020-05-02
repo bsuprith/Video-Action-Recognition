@@ -1,129 +1,65 @@
-import os
-import glob
-import keras
-from keras_video import VideoFrameGenerator
-from keras.layers import Conv2D, BatchNormalization, MaxPool2D, GlobalMaxPool2D, \
-    TimeDistributed, GRU, Dense, Dropout, LSTM, Activation, Flatten
-import tensorflow as tf
+"""
+Train our RNN on extracted features or images.
+"""
+from keras.callbacks import TensorBoard, ModelCheckpoint, EarlyStopping, CSVLogger, ReduceLROnPlateau
+from models import ResearchModels
+from data import DataSet
+import time
+import os.path
+import pdb
 import matplotlib.pyplot as plt
-from keras.optimizers import Adam, RMSprop
-from keras import regularizers
 
+__location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
-SIZE = (80, 80)
-CHANNELS = 3
-NUM_FRAMES = 30
-BATCH_SIZE = 8
-
-# class names
-classes = [i.split(os.path.sep)[1] for i in glob.glob('videos\\*')]
-classes.sort()
-nb_classes = len(classes)
-
-# video pattern
-glob_pattern = 'videos\\{classname}\\*.mp4'
-
-# for data augmentation
-data_aug = keras.preprocessing.image.ImageDataGenerator(
-    zoom_range=.1,
-    horizontal_flip=True,
-    rotation_range=8,
-    width_shift_range=.2,
-    height_shift_range=.2)
-
-# Create video frame generator
-train = VideoFrameGenerator(
-    classes=classes, 
-    glob_pattern=glob_pattern,
-    nb_frames=NUM_FRAMES,
-    split=.33, 
-    shuffle=True,
-    batch_size=BATCH_SIZE,
-    target_shape=SIZE,
-    nb_channel=CHANNELS,
-    transformation=data_aug,
-    use_frame_cache=True)
-
-valid = train.get_validation_generator()
-
-def add_default_block(model, kernel_filters, init, reg_lambda):
-
-    # conv
-    model.add(TimeDistributed(Conv2D(kernel_filters, (3, 3), padding='same',
-                                        kernel_initializer=init, kernel_regularizer=regularizers.l2(reg_lambda))))
-    model.add(TimeDistributed(BatchNormalization()))
-    model.add(TimeDistributed(Activation('relu')))
-    # conv
-    model.add(TimeDistributed(Conv2D(kernel_filters, (3, 3), padding='same',
-                                        kernel_initializer=init, kernel_regularizer=regularizers.l2(reg_lambda))))
-    model.add(TimeDistributed(BatchNormalization()))
-    model.add(TimeDistributed(Activation('relu')))
-    # max pool
-    model.add(TimeDistributed(MaxPool2D((2, 2), strides=(2, 2))))
-
-    return model
-
-if __name__ == "__main__":
-    INSHAPE=(NUM_FRAMES,) + SIZE + (CHANNELS,)
-        
-    # GPU usage options
-    config = tf.compat.v1.ConfigProto()
-    config.gpu_options.allow_growth = True
-    sess = tf.compat.v1.Session(config=config)
-    
-    initialiser = 'glorot_uniform'
-    reg_lambda  = 1e-4
-
-    model = keras.Sequential()
-
-    # first (non-default) block
-    model.add(TimeDistributed(Conv2D(32, (7, 7), strides=(2, 2), padding='same',
-                                        kernel_initializer=initialiser, kernel_regularizer=regularizers.l2(reg_lambda)),
-                                input_shape=INSHAPE))
-    model.add(TimeDistributed(BatchNormalization()))
-    model.add(TimeDistributed(Activation('relu')))
-    model.add(TimeDistributed(Conv2D(32, (3,3), kernel_initializer=initialiser, kernel_regularizer=regularizers.l2(reg_lambda))))
-    model.add(TimeDistributed(BatchNormalization()))
-    model.add(TimeDistributed(Activation('relu')))
-    model.add(TimeDistributed(MaxPool2D((2, 2), strides=(2, 2))))
-
-    # 2nd-5th (default) blocks
-    model = add_default_block(model, 64,  init=initialiser, reg_lambda=reg_lambda)
-    model = add_default_block(model, 128, init=initialiser, reg_lambda=reg_lambda)
-    model = add_default_block(model, 256, init=initialiser, reg_lambda=reg_lambda)
-    model = add_default_block(model, 512, init=initialiser, reg_lambda=reg_lambda)
-
-    # LSTM output head
-    model.add(TimeDistributed(Flatten()))
-    model.add(LSTM(256, return_sequences=False, dropout=0.5))
-    model.add(Dense(nb_classes, activation='softmax'))
-
-    optimizer = keras.optimizers.Adam(learning_rate=0.001, beta_1=0.9, beta_2=0.999, amsgrad=False)
-    model.compile(
-        optimizer,
-        'categorical_crossentropy',
-        metrics=['acc']
-    )
-
-    EPOCHS = 20
-    # saving checkpoints
+def train(data_type, seq_length, model, saved_model=None,
+          class_limit=None, image_shape=None,
+          load_to_memory=False, batch_size=32, nb_epoch=100):
+    # Helper: Save the model.
     callbacks = [
-        keras.callbacks.ReduceLROnPlateau(verbose=1, monitor='val_accuracy', mode='max'),
-        keras.callbacks.ModelCheckpoint(
+        ReduceLROnPlateau(verbose=1, monitor='val_acc', mode='max'),
+        ModelCheckpoint(
             'chkp\\weights.{epoch:02d}-{val_loss:.2f}.hdf5',
-            verbose=1, save_best_only=True),
+            verbose=1, save_best_only=True)
     ]
-    history = model.fit_generator(
-        train,
-        validation_data=valid,
+
+    # Get the data and process it.
+    if image_shape is None:
+        data = DataSet(
+            seq_length=seq_length,
+            class_limit=class_limit
+        )
+    else:
+        data = DataSet(
+            seq_length=seq_length,
+            class_limit=class_limit,
+            image_shape=image_shape
+        )
+
+    # Get samples per epoch.
+    # Multiply by 0.7 to attempt to guess how much of data.data is the train set.
+    steps_per_epoch = (len(data.data) * 0.7) // batch_size
+    
+    # Get generators.
+    generator = data.frame_generator(batch_size, 'train', data_type)
+    val_generator = data.frame_generator(batch_size, 'test', data_type)
+
+    # Get the model.
+    rm = ResearchModels(len(data.classes), model, seq_length, saved_model)
+
+    # Fit!    
+    history = rm.model.fit_generator(
+        generator=generator,
+        steps_per_epoch=steps_per_epoch,
+        epochs=nb_epoch,
         verbose=1,
-        epochs=EPOCHS,
-        callbacks=callbacks
-    )
+        callbacks=callbacks,
+        validation_data=val_generator,
+        validation_steps=40,
+        workers=4)
 
     # Plot training & validation accuracy values
     plt.plot(history.history['acc'])
-    plt.plot(history.history['val_acc'])
+    plt.plot(history.history['val_accuracy'])
     plt.title('Model accuracy')
     plt.ylabel('Accuracy')
     plt.xlabel('Epoch')
@@ -142,3 +78,26 @@ if __name__ == "__main__":
     
     plt.savefig('model_loss.png')
     plt.close()
+
+def main():
+    """These are the main training settings. Set each before running
+    this file."""
+    
+    model = 'lrcn'
+    saved_model = None  # None or weights file
+    class_limit = None  # int, can be 1-101 or None
+    seq_length = 5
+    load_to_memory = False  # pre-load the sequences into memory
+    batch_size = 8
+    nb_epoch = 300
+
+    # Chose images or features and image shape based on network.
+    data_type = 'images'
+    image_shape = (80, 80, 3)
+
+    train(data_type, seq_length, model, saved_model=saved_model,
+          class_limit=class_limit, image_shape=image_shape,
+          load_to_memory=load_to_memory, batch_size=batch_size, nb_epoch=nb_epoch)
+
+if __name__ == '__main__':
+    main()
