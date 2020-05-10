@@ -255,20 +255,20 @@ class DataSet():
 
         return sequence
 
-    def get_frames_newvid(self, filename):        
+    def get_frames_newvid(self, filename, extension):        
         
         # Get and resample frames.            
-        self.generate_images(filename)
+        self.generate_images(filename, extension)
         frames = self.get_frames_for_video(filename)
         return frames, self.fps
 
     @staticmethod
-    def generate_images(vidfile):
+    def generate_images(vidfile, extension):
         src = os.path.join(__location__, vidfile)
         dest = os.path.join(__location__, 'Images', vidfile)
         Path(dest).mkdir(parents=True, exist_ok=True)
 
-        vidcap = cv2.VideoCapture(vidfile + '.mp4')
+        vidcap = cv2.VideoCapture(vidfile + extension)
 
         # Calculate fps of video
         # Find OpenCV version

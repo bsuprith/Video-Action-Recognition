@@ -3,16 +3,18 @@ Given a video path and a saved model (checkpoint), produce classification
 predictions.
 
 """
-from keras.models import load_model
+import tensorflow as tf
+""" from keras.models import load_model """
 from data import DataSet
 import numpy as np
 import os, json
 import matplotlib.pyplot as plt
+import glob
 
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
 
-def predict(data_type, seq_length, saved_model, image_shape, video_name, class_limit):
-    model = load_model(saved_model)
+def predict(data_type, seq_length, saved_model, image_shape, video_name, extension, class_limit):
+    model = tf.keras.models.load_model(saved_model)
 
     temporal_predictions = []
     temporal_labels = []
@@ -27,10 +29,10 @@ def predict(data_type, seq_length, saved_model, image_shape, video_name, class_l
             class_limit=class_limit)
     
     # Extract the sample from the data.
-    vid_frames, vid_fps = data.get_frames_newvid(video_name)
+    vid_frames, vid_fps = data.get_frames_newvid(video_name, extension)
     
     for i in np.arange(0, len(vid_frames), vid_fps):
-        rescaled_list = data.rescale_list(vid_frames[i:np.amin([i+vid_fps-1, len(vid_frames)])], seq_length)
+        rescaled_list = data.rescale_list(vid_frames[i:np.amin([i+vid_fps, len(vid_frames)])], seq_length)
         if rescaled_list is None:
             continue
         # Generate the sequence
@@ -52,29 +54,33 @@ def predict(data_type, seq_length, saved_model, image_shape, video_name, class_l
     # Plot of predicted labels with time
     
     plt.clf()
+    output_classes = ['studying', 'reading_book']
+    test_vec = [1 if lbl in output_classes else 0 for lbl in temporal_labels]
+
     xs = np.arange(0,len(temporal_labels),1)
-    ys = temporal_prob
+    """ ys = temporal_prob """
+    ys = test_vec
     plt.plot(xs,ys,'bo-')
         
     plt.title('Video action predictions')
-    plt.ylabel('Probability')
+    plt.ylabel('Reading a book')
     plt.xlabel('Time')
-    for x,y in zip(xs,ys):
+    """ for x,y in zip(xs,ys):
         label = "{}".format(temporal_labels[x])
         plt.annotate(label,
                     (x,y),
                     textcoords="offset points",
                     xytext=(0,10),
-                    ha='center')
+                    ha='center') """
 
-    plt.savefig('{}.png'.format(video_name+'_predictions'))
+    plt.savefig('{}.png'.format(video_name))
     plt.close()
 
 def main():    
     # model can be one of lstm, lrcn, mlp, conv_3d, c3d.
     model = 'lrcn'
     # Must be a weights file.
-    saved_model = os.path.join(__location__, 'chkp\\weights.155-2.21.hdf5')
+    saved_model = os.path.join(__location__, 'chkp\\model8.hdf5')
     # Sequence length must match the lengh used during training.
     seq_length = 5
     # Limit must match that used during training.
@@ -85,19 +91,25 @@ def main():
     # Assumes it's in data/[train|test]/
     # It takes in the path to
     # an actual video file, extract frames, generate sequences, etc.
-    video_name = 'a063-0542C'
+    """ video_name = '5500_4'
+    extension = '.mkv' """
 
-    # Chose images or features and image shape based on network.
-    if model in ['conv_3d', 'c3d', 'lrcn']:
-        data_type = 'images'
-        image_shape = (80, 80, 3)
-    elif model in ['lstm', 'mlp']:
-        data_type = 'features'
-        image_shape = None
-    else:
-        raise ValueError("Invalid model. See train.py for options.")
+    videos = sorted(glob.glob('*.mkv'))
+    for vid in videos:
+        video_name, ext = vid.split('.')
+        extension = '.'+ ext
 
-    predict(data_type, seq_length, saved_model, image_shape, video_name, class_limit)
+        # Chose images or features and image shape based on network.
+        if model in ['conv_3d', 'c3d', 'lrcn']:
+            data_type = 'images'
+            image_shape = (80, 80, 3)
+        elif model in ['lstm', 'mlp']:
+            data_type = 'features'
+            image_shape = None
+        else:
+            raise ValueError("Invalid model. See train.py for options.")
+
+        predict(data_type, seq_length, saved_model, image_shape, video_name, extension, class_limit)
 
 if __name__ == '__main__':
     main()
